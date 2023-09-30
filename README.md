@@ -1,4 +1,4 @@
-# torcpp, a C++20 port of the TORC runtime library
+# torcc, a C++20 port of the TORC runtime library
 
 ## Basic build instructions
 
@@ -28,4 +28,6 @@ make && make install
 
 ## Disclaimer
 
-The port is in a **very** rough state and the migration from GNU autotools to CMake hasn't been performed properly (yet). This repo is currently acting as a backup tool. Please do not use this library yet.
+The port is in a **very** rough state and the migration from GNU autotools to CMake hasn't been performed properly (yet). This repo is currently acting as a backup tool. Please do not use the library yet. 
+
+It probably won't even compile...
