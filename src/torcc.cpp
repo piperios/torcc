@@ -53,10 +53,8 @@ i32 scheduler_loop(i32 once) { return internal::scheduler_loop(once); }
     rte->work_id = -1;                                                                             \
   }
 
-#ifdef TORC_STATS
 static i32 invisible_flag = 0;
 void torc_set_invisible(i32 flag) { invisible_flag = flag; }
-#endif
 
 void torc_task_detached(i32 queue, func_t work, i32 narg, ...) {
   va_list ap;

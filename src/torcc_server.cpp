@@ -319,9 +319,9 @@ static int _torc_prefetch_decision() {
   for (auto i = 0; i < MAX_NVPS; ++i) executes += executed[i];
 
   bool was_slow = last_steal_duration > 0.1 * last_task_duration;
-  bool steals_were_effective = (steal_attempts > 0) ? (steal_served / steal_attempts) > 0.8 : 1;
+  bool steals_were_effective = (steal_attempts > 0) ? (static_cast<f32>(steal_served) / steal_attempts) > 0.8 : 1;
 
-  return ((executes > 0) ? steal_served / executes : 0.0) > 0.4 ||
+  return ((executes > 0) ? static_cast<f32>(steal_served) / executes : 0.0) > 0.4 ||
          (was_slow && steals_were_effective);
 }
 
