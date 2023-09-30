@@ -29,7 +29,7 @@ i32 process_a_received_descriptor(internal::descriptor* work) {
   MPI_Status status;
   i32 istat, tag;
 
-  work->next = NULL;
+  work->next = nullptr;
 
   // tag == MAX_NVPS occurs with asynchronous stealing
   tag = work->sourcevpid;
@@ -104,13 +104,13 @@ i32 process_a_received_descriptor(internal::descriptor* work) {
       stolen_work = queue::local_rq_dequeue(0);
 
       for (auto i = 1; i < 10; i++) {
-        if (stolen_work == NULL)
+        if (!stolen_work)
           stolen_work = queue::local_rq_dequeue(i);
         else
           break;
       }
 
-      if (stolen_work != NULL) {
+      if (stolen_work) {
         direct_send_descriptor(DIRECT_SYNCHRONOUS_STEALING_REQUEST, work->sourcenode,
                                work->sourcevpid, stolen_work);
         steal_served++;
@@ -191,7 +191,34 @@ i32 process_a_received_descriptor(internal::descriptor* work) {
   return reuse;
 }
 
-}  // namespace
+i32 prefetch_decision() {
+  i32 executes = 0;
+
+  for (auto i = 0; i < MAX_NVPS; ++i) executes += executed[i];
+
+  bool was_slow = last_steal_duration > 0.1 * last_task_duration;
+  bool steals_were_effective = (steal_attempts > 0) ? (static_cast<f32>(steal_served) / steal_attempts) > 0.8 : 1;
+
+  return ((executes > 0) ? static_cast<f32>(steal_served) / executes : 0.0) > 0.4 ||
+         (was_slow && steals_were_effective);
+}
+
+void prefetch_request(i32 target_node) {
+  descriptor data;
+  auto id = node_id();
+  auto record = worker_record;
+
+  if (termination_flag || !prefetch_decision()) return;
+
+  memset(&data, 0, sizeof(data));
+  data.localarg[0] = id;
+  data.homenode = id;
+
+  record.at(get_level()).prefetch_requests++;
+  send_descriptor(target_node, &data, PREFETCH_REQUEST);
+}
+
+}  // private namespace
 
 void* server_loop(void* arg) {
   descriptor* work;
@@ -252,52 +279,10 @@ void* server_loop(void* arg) {
   return 0;
 }
 
-/******************************************************************************/
-/******************************************************************************/
-static std::mutex server_thread_lock{};
-static bool server_thread_alive = false;
-
-void start_server_thread() {
-  std::unique_lock lock{server_thread_lock};
-  if (server_thread_alive) return;
-
-  server_thread = std::thread{server_loop, nullptr};
-  server_thread_alive = true;
-}
-
-void shutdown_server_thread() {
-  static descriptor my_data;
-
-#if DBG
-  printf("[%d]: Terminating local server thread....\n", torc_node_id());
-  fflush(0);
-#endif
-
-  std::unique_lock lock{server_thread_lock};
-  if (!server_thread_alive) return;
-
-  std::memset(&my_data, 0, sizeof(my_data));
-  if (thread_safe)
-    send_descriptor(node_id(), &my_data, TERMINATE_LOCAL_SERVER_THREAD);
-  else
-    termination_flag = true;
-
-  server_thread.join();
-  server_thread_alive = false;
-}
-
-/*************************************************************************/
-/**********************     THREAD MANAGEMENT      **********************/
-/*************************************************************************/
-
 void terminate_workers() {
   descriptor my_data;
   auto nnodes = num_nodes();
   auto curr_node = node_id();
-
-#if DBG
-  printf("Terminating worker threads ...\n");
-#endif
 
   std::memset(&my_data, 0, sizeof(my_data));
   my_data.localarg[0] = curr_node;
@@ -307,44 +292,19 @@ void terminate_workers() {
     if (node != curr_node) send_descriptor(node, &my_data, TERMINATE_WORKER_THREADS);
   }
 }
+static std::mutex server_thread_lock{};
+static bool server_thread_alive = false;
 
 /*************************************************************************/
 /**********************     INTERNODE STEALING      **********************/
 /*************************************************************************/
 std::mutex sl{};
 
-static int _torc_prefetch_decision() {
-  i32 executes = 0;
-
-  for (auto i = 0; i < MAX_NVPS; ++i) executes += executed[i];
-
-  bool was_slow = last_steal_duration > 0.1 * last_task_duration;
-  bool steals_were_effective = (steal_attempts > 0) ? (static_cast<f32>(steal_served) / steal_attempts) > 0.8 : 1;
-
-  return ((executes > 0) ? static_cast<f32>(steal_served) / executes : 0.0) > 0.4 ||
-         (was_slow && steals_were_effective);
-}
-
-void prefetch_request(int target_node) {
-  descriptor data;
-  auto id = node_id();
-  auto record = worker_record;
-
-  if (termination_flag || !_torc_prefetch_decision()) return;
-
-  memset(&data, 0, sizeof(data));
-  data.localarg[0] = id;
-  data.homenode = id;
-
-  record.at(get_level()).prefetch_requests++;
-  send_descriptor(target_node, &data, PREFETCH_REQUEST);
-}
-
 descriptor* direct_synchronous_stealing_request(i32 target_node) {
   i32 vp = target_node;
   descriptor my_data, *work;
 
-  if (termination_flag) { return NULL; }
+  if (termination_flag) { return nullptr; }
 
   {
     std::lock_guard lock{sl};
@@ -356,13 +316,13 @@ descriptor* direct_synchronous_stealing_request(i32 target_node) {
 
     send_descriptor(vp, &my_data, DIRECT_SYNCHRONOUS_STEALING_REQUEST);
     receive_descriptor(vp, work);
-    work->next = NULL;
+    work->next = nullptr;
   }
 
   if (work->type == NO_WORK) {
     usleep(100 * 1000);
     queue::put_reused_desc(work);
-    return NULL;
+    return nullptr;
   } else {
     steal_hits++;
     return work;
@@ -372,6 +332,30 @@ descriptor* direct_synchronous_stealing_request(i32 target_node) {
 }  // namespace torc::internal::mpi
 
 namespace torc {
+
+void start_server_thread() {
+  std::unique_lock lock{internal::mpi::server_thread_lock};
+  if (internal::mpi::server_thread_alive) return;
+
+  internal::server_thread = std::thread{internal::mpi::server_loop, nullptr};
+  internal::mpi::server_thread_alive = true;
+}
+
+void shutdown_server_thread() {
+  static internal::descriptor my_data;
+
+  std::unique_lock lock{internal::mpi::server_thread_lock};
+  if (!internal::mpi::server_thread_alive) return;
+
+  std::memset(&my_data, 0, sizeof(my_data));
+  if (internal::thread_safe)
+    internal::mpi::send_descriptor(node_id(), &my_data, internal::mpi::TERMINATE_LOCAL_SERVER_THREAD);
+  else
+    internal::mpi::termination_flag = true;
+
+  internal::server_thread.join();
+  internal::mpi::server_thread_alive = false;
+}
 
 void torc_disable_stealing() {
   internal::descriptor my_data;
@@ -437,11 +421,7 @@ void local_enable_stealing() { internal::internode_stealing = 1; }
 
 void local_disable_stealing() { internal::internode_stealing = 0; }
 
-/*************************************************************************/
-/************************     RESET STATISTICS     ***********************/
-/*************************************************************************/
-
-void torc_reset_statistics() {
+void reset_statistics() {
   internal::descriptor my_data;
   i32 node, nnodes = num_nodes();
 
@@ -450,7 +430,7 @@ void torc_reset_statistics() {
     if (node != node_id())
       internal::mpi::send_descriptor(node, &my_data, internal::mpi::RESET_STATISTICS);
     else
-      reset_statistics();
+      internal::reset_statistics();
   }
 }
 

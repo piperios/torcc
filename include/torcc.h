@@ -25,8 +25,8 @@ namespace torc {
 void init(int argc, char** argv, int ms);
 void reset_statistics();
 
-typedef double time_t;
-time_t gettime();
+typedef f64 time_t;
+time_t get_time();
 
 i32 worker_id_local();
 i32 num_workers_local();
@@ -59,6 +59,7 @@ void wait_all();
 void wait_all2();
 void wait_all3();
 void task_sync();
+
 i32 scheduler_loop(i32);
 
 void task(i32 queue, func_t f, i32 narg, ...);

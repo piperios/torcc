@@ -237,7 +237,7 @@ void opt(int argc, char* argv[]) {
   auto initialized = 0;
   int val;
 
-  /* in case argv cannot be NULL (HPMPI) */
+  /* in case argv cannot be nullptr (HPMPI) */
   if (argc == 0) largv = (char**) &llargv;
 
   MPI_Initialized(&initialized);
@@ -312,9 +312,9 @@ descriptor* get_next_task() {
   }
 
   rte_next = queue::local_pq_dequeue();
-  if (rte_next == NULL) {
+  if (!rte_next) {
     for (auto i = 9; i >= 0; i--) {
-      if (rte_next == NULL)
+      if (!rte_next)
         rte_next = queue::local_rq_dequeue(i);
       else
         break;

@@ -141,7 +141,6 @@ struct torc_data {
   pthread_key_t _currt_key;
 };
 
-
 extern std::shared_ptr<torc_data> torc_data_inst;
 
 #define global_vps torc_data_inst->_global_vps

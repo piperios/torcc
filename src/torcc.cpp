@@ -18,6 +18,22 @@
 
 namespace torc {
 
+namespace {
+
+#define _initialize(rte)                                                                           \
+  {                                                                                                \
+    rte->homenode = rte->sourcenode = node_id();                                                   \
+    rte->target_queue = rte->vp_id = -1;                                                           \
+    rte->work_id = -1;                                                                             \
+  }
+
+static i32 invisible_flag = 0;
+void set_invisible(i32 flag) { invisible_flag = flag; }
+
+i32 local_num_workers() { return internal::kthreads; }
+
+} // private namespace
+
 void wait_all() { internal::block(); }
 
 void wait_all2() { internal::block2(); }
@@ -46,17 +62,7 @@ void wait_all3() {
 
 i32 scheduler_loop(i32 once) { return internal::scheduler_loop(once); }
 
-#define _initialize(rte)                                                                           \
-  {                                                                                                \
-    rte->homenode = rte->sourcenode = node_id();                                                   \
-    rte->target_queue = rte->vp_id = -1;                                                           \
-    rte->work_id = -1;                                                                             \
-  }
-
-static i32 invisible_flag = 0;
-void torc_set_invisible(i32 flag) { invisible_flag = flag; }
-
-void torc_task_detached(i32 queue, func_t work, i32 narg, ...) {
+void task_detached(i32 queue, func_t work, i32 narg, ...) {
   va_list ap;
   int i;
   internal::descriptor* rte;
@@ -72,8 +78,6 @@ void torc_task_detached(i32 queue, func_t work, i32 narg, ...) {
   rte->inter_node = 1;
   rte->parent = nullptr;
   rte->level = 0;
-
-  // if (narg > MAX_TORC_ARGS) internal::mpi::Error("narg > MAX_TORC_ARGS");
 
   va_start(ap, narg);
 
@@ -119,7 +123,7 @@ void torc_task_detached(i32 queue, func_t work, i32 narg, ...) {
     internal::queue::to_lrq_end(queue, rte);
 }
 
-void torc_task(int queue, func_t work, int narg, ...) {
+void task(int queue, func_t work, int narg, ...) {
   va_list ap;
   internal::descriptor* rte;
   internal::descriptor* self = internal::self();
@@ -274,12 +278,11 @@ void torc_task_ex(int queue, int invisible, func_t work, int narg, ...) {
     internal::queue::to_lrq_end(queue, rte);
 }
 
-void torc_task_direct(int queue, func_t work, int narg, ...) {
+void task_direct(i32 queue, func_t work, i32 narg, ...) {
   va_list ap;
   internal::descriptor* rte;
   internal::descriptor* self = internal::self();
 
-  /* Check if rte_init has been called */
   /* Check if rte_init has been called */
   {
     std::lock_guard lock{self->lock};
@@ -356,7 +359,6 @@ i32 get_level() { return internal::self()->level; }
 
 i32 node_id() { return internal::mpi_rank; }
 i32 num_nodes() { return internal::mpi_nodes; }
-i32 local_num_workers() { return internal::kthreads; }
 
 i32 num_workers() {
   if (num_nodes() > 1)
@@ -365,14 +367,14 @@ i32 num_workers() {
     return local_num_workers();
 }
 
-i32 torc_worker_id() {
+i32 worker_id() {
   if (num_nodes() > 1)
     return internal::mpi::local_thread_id_to_global_thread_id(internal::get_vpid());
   else
     return internal::get_vpid();
 }
 
-struct torc_data* torc_data;
+std::shared_ptr<internal::torc_data> internal::torc_data_inst;
 
 void init(int argc, char* argv[], int ms) {
   static bool torc_initialized = 0;
